@@ -1,0 +1,9 @@
+example_ewht/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.whl

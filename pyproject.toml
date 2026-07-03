@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ewht"
+version = "0.0.1"
+description = "Evolutionary Walsh-Hadamard transform and compressed sensing for protein fitness landscapes"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Amir Group" },
+]
+keywords = [
+    "walsh-hadamard",
+    "fitness-landscape",
+    "deep-mutational-scanning",
+    "compressed-sensing",
+    "protein-engineering",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+]
+
+[project.optional-dependencies]
+torch = ["torch"]
+esm = ["torch", "transformers"]
+dev = ["pytest", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/amirgroup-codes/ewht"
+Repository = "https://github.com/amirgroup-codes/ewht"
+Documentation = "https://github.com/amirgroup-codes/ewht#readme"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ewht*"]
+
+[tool.setuptools.package-data]
+ewht = ["example_data/*.csv", "example_data/*.a2m", "example_data/*.npy"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that load ESM (deselect with '-m \"not slow\"')",
+]
