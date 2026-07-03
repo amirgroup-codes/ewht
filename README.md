@@ -7,7 +7,7 @@
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Last Commit](https://img.shields.io/github/last-commit/amirgroup-codes/ewht)](https://github.com/amirgroup-codes/ewht/commits/main)
 
-`ewht` is a Python package for analyzing combinatorial deep mutational scanning (DMS) fitness landscapes using the **evolutionary Walsh-Hadamard transform (eWHT)**. It provides:
+`ewht` is a Python package for analyzing combinatorial fitness landscapes using the **evolutionary Walsh-Hadamard transform (eWHT)**. It provides:
 
 - Fast **O(N log N)** forward and inverse eWHT transforms
 - **Evolutionary mutation probabilities** `ps` from MSAs or ESM2-650M
