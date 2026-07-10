@@ -36,4 +36,4 @@ __all__ = [
     "example_ps_reference",
 ]
 
-__version__ = "0.0.1"
+__version__ = "0.0.1.post1"

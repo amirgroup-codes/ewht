@@ -12,7 +12,7 @@
 - Fast **O(N log N)** forward and inverse eWHT transforms
 - **Evolutionary mutation probabilities** `ps` from MSAs or ESM2-650M
 - **Data preprocessing** helpers (genotype encoding, evolutionary subsampling)
-- **Compressed sensing** with Lasso on eWHT/WHT bases
+- **Compressed sensing** with LASSO on eWHT/WHT bases
 
 ## Installation
 
