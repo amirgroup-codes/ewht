@@ -144,39 +144,3 @@ For custom mappings, add a `genotype` column directly instead of using `genotype
 |-------|----------|----------|
 | (default) | numpy, pandas, scipy, scikit-learn | transforms, MSA-based ps, CS |
 | `ewht[esm]` | torch, transformers | ps from ESM2-650M when no MSA is available |
-
-## Publishing to PyPI
-
-From a clean checkout of the repository:
-
-```sh
-# Install build tools
-pip install build twine
-
-# Build sdist + wheel (includes bundled example_data/)
-python -m build
-
-# Upload to TestPyPI first (recommended)
-twine upload --repository testpypi dist/*
-
-# Verify install
-pip install --index-url https://test.pypi.org/simple/ ewht
-
-# Upload to PyPI
-twine upload dist/*
-```
-
-Before the first upload:
-
-1. Create accounts on [PyPI](https://pypi.org/account/register/) and [TestPyPI](https://test.pypi.org/account/register/).
-2. Configure an API token: `~/.pypirc` or `TWINE_USERNAME=__token__` / `TWINE_PASSWORD=pypi-...`.
-3. Ensure the package name `ewht` is available on PyPI (or change `name` in `pyproject.toml`).
-4. Bump `version` in `pyproject.toml` and `ewht/__init__.py` for each release.
-
-## Development
-
-```sh
-pip install -e ".[esm]"
-pytest tests/ -v -m "not slow"
-python example_ewht.py
-```
