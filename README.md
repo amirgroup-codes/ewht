@@ -89,23 +89,16 @@ ps, scored = ewht.get_ps_from_library(
 # AntiBERTy, pseudo-log-likelihood per variant sequence. Antibodies only.
 ps, scored = ewht.get_ps_from_library(
     "landscape.csv", "antiberty",
-    sequence_col="mutated_sequence", higher_is_fitter=False, return_frame=True,
+    sequence_col="mutated_sequence", return_frame=True,
 )
 
 scored[["genotype", "fitness", "plm_score", "plm_score_bin"]].head()
 ```
 
-If the model's score runs *against* fitness, pass `higher_is_fitter=False`, which flips
-the sign before the median split. `spearman_score_vs_fitness` tells you which way your
-data runs:
-
-```python
-rho = ewht.spearman_score_vs_fitness(scored)        # negative => flip
-```
-
-Scoring a big library is expensive, so cache the scores and feed them back rather than
-rescoring. The same hook takes scores from any other source (another model, a second
-assay):
+Scoring uses the model score as returned (LLR or pseudo-log-likelihood) — no
+fitness-direction flip. Scoring a big library is expensive, so cache the scores and
+feed them back rather than rescoring. The same hook takes scores from any other source
+(another model, a second assay):
 
 ```python
 ps = ewht.get_ps_from_library(df, scores=my_scores)
@@ -136,7 +129,6 @@ The forward transform decomposes the centered landscape into Walsh coefficients 
 | `score_landscape(data, model)` | Landscape + `plm_score` + `plm_score_bin` |
 | `ps_from_scored_landscape(df)` | `ps` from an already scored and binned frame |
 | `get_ps_from_scores(df, scores)` | `ps` from a library scored by any model |
-| `spearman_score_vs_fitness(df, scores)` | Which way a model's score runs against fitness |
 | `genotypes_from_dataframe(df, positions, wt_sequence, mutants)` | Build a binary genotype column from sequences |
 | `split_bin_train_test(df, n_train, in_bin=...)` | Uniform train/test split inside a bin (the paper's protocol) |
 | `sample_evolutionary_sequences(df, ps, ...)` | `ps`-weighted subsampling, with an optional MSA mask |

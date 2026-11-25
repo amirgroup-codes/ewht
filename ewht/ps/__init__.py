@@ -10,7 +10,6 @@ from ewht.ps.plm import (
     ps_from_bin,
     ps_from_scored_landscape,
     score_landscape,
-    spearman_score_vs_fitness,
     variant_sequences,
 )
 
@@ -26,7 +25,6 @@ __all__ = [
     "variant_sequences",
     "plm_bin",
     "ps_from_bin",
-    "spearman_score_vs_fitness",
     "MODELS",
     "PLM_SCORE_COLUMN",
     "PLM_BIN_COLUMN",

@@ -8,9 +8,8 @@ sequence with AntiBERTy's pseudo-log-likelihood, the protocol documented for the
     PLL(s) = (1/L) sum_i log p(s_i | s_\\i)      one forward pass per masked position
     PPL(s) = exp(-PLL(s))                        pseudo-perplexity
 
-Higher PLL means a more antibody-like sequence. Fitness often runs *against* how
-antibody-like a sequence is, so pass ``higher_is_fitter=False`` to the ``ewht.ps``
-entry points when that is the case for your assay.
+Higher PLL means a more antibody-like sequence. Scores are used as returned by the
+model (no fitness-direction flip).
 
 ``pseudo_log_likelihood`` reimplements ``antiberty.AntiBERTyRunner.pseudo_log_likelihood``
 in batched form: the reference implementation scores one sequence at a time, which is far

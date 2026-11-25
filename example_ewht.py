@@ -10,7 +10,6 @@ from ewht import (
     get_ps_from_library,
     load_example,
     run_cs_experiment,
-    spearman_score_vs_fitness,
     split_bin_train_test,
 )
 
@@ -60,9 +59,7 @@ def main() -> None:
     #       mutants=MUTANTS, return_frame=True)                       # ESM2 WT-marginal
     #   ps, scored = get_ps_from_library(
     #       "landscape.csv", "antiberty", sequence_col="mutated_sequence",
-    #       higher_is_fitter=False, return_frame=True)                # AntiBERTy PPL
-    rho = spearman_score_vs_fitness(df, "plm_score")
-    print(f"Spearman(pLM score, fitness) = {rho:.4f}")
+    #       return_frame=True)                                        # AntiBERTy PPL
     ps, scored = get_ps_from_library(
         df,
         wt_sequence=WT_SEQUENCE,

@@ -226,7 +226,6 @@ def score_landscape(
     genotype_col: str | None = None,
     sequence_col: str | None = None,
     scores: np.ndarray | None = None,
-    higher_is_fitter: bool = True,
     threshold: float | None = None,
     llr: pd.DataFrame | None = None,
     cache_folder: str | Path | None = None,
@@ -249,10 +248,6 @@ def score_landscape(
     - ``genotype_col``, ``sequence_col``: optional column names.
     - ``scores``: ``(N,)`` precomputed scores aligned with the rows, which skips the
       model entirely. Use this to reuse an expensive scoring run.
-    - ``higher_is_fitter``: set ``False`` when model score runs against fitness; the sign
-      is flipped before the median split, so ``plm_score`` is always oriented with
-      higher = treated as fitter. ``spearman_score_vs_fitness`` tells you which way round
-      your data is.
     - ``threshold``: optional cut to use instead of the median.
     - ``llr``: precomputed wildtype LLR matrix for ``'esm2'``.
     - ``cache_folder``, ``model_name``, ``device``, ``batch_sequences``, ``verbose``:
@@ -260,8 +255,8 @@ def score_landscape(
 
     Outputs:
     - a copy of the landscape with a validated ``genotype`` column plus
-      ``plm_score`` (float, oriented) and ``plm_score_bin`` (1 at or above the median
-      score, else 0).
+      ``plm_score`` (float; LLR or pseudo-log-likelihood as returned by the model) and
+      ``plm_score_bin`` (1 at or above the median score, else 0).
     """
     df = _read_landscape(data)
     df, genotype_col = _ensure_genotypes(
@@ -298,8 +293,6 @@ def score_landscape(
             )
 
     values = np.asarray(values, dtype=float)
-    if not higher_is_fitter:
-        values = -values
     df[PLM_SCORE_COLUMN] = values
     df[PLM_BIN_COLUMN] = plm_bin(values, threshold=threshold).astype(int)
     return df
@@ -311,7 +304,7 @@ def plm_bin(scores: np.ndarray, *, threshold: float | None = None) -> np.ndarray
     Split a scored library at its median into the pLM bin.
 
     Inputs:
-    - ``scores``: ``(N,)`` float variant scores, higher = more fit.
+    - ``scores``: ``(N,)`` float variant scores (as returned by the model).
     - ``threshold``: optional cut to use instead of the median.
 
     Outputs:
@@ -399,7 +392,6 @@ def get_ps_from_scores(
     scores: np.ndarray | str,
     *,
     genotype_col: str | None = None,
-    higher_is_fitter: bool = True,
     threshold: float | None = None,
     ps_bounds: tuple[float, float] | Sequence[float] | None = None,
     return_bin: bool = False,
@@ -415,7 +407,6 @@ def get_ps_from_scores(
     - ``scores``: ``(N,)`` float array aligned with ``df`` rows, or the name of a column
       of ``df`` holding them.
     - ``genotype_col``: optional genotype column name.
-    - ``higher_is_fitter``: set ``False`` when the score runs against fitness.
     - ``threshold``: optional cut to use instead of the median.
     - ``ps_bounds``: ``(low, high)`` clip interval; defaults to ``(0.05, 0.95)``.
     - ``return_bin``: if ``True``, also return the bin mask.
@@ -434,8 +425,6 @@ def get_ps_from_scores(
             raise ValueError(
                 f"scores must have one value per row: got {values.shape} for {len(df)} rows."
             )
-    if not higher_is_fitter:
-        values = -values
 
     in_bin = plm_bin(values, threshold=threshold)
     ps = ps_from_bin(_genotype_matrix(df, genotype_col), in_bin, ps_bounds=ps_bounds)
@@ -452,7 +441,6 @@ def get_ps_from_library(
     genotype_col: str | None = None,
     sequence_col: str | None = None,
     scores: np.ndarray | None = None,
-    higher_is_fitter: bool = True,
     threshold: float | None = None,
     ps_bounds: tuple[float, float] | Sequence[float] | None = None,
     llr: pd.DataFrame | None = None,
@@ -486,7 +474,6 @@ def get_ps_from_library(
         genotype_col=genotype_col,
         sequence_col=sequence_col,
         scores=scores,
-        higher_is_fitter=higher_is_fitter,
         threshold=threshold,
         llr=llr,
         cache_folder=cache_folder,
@@ -497,43 +484,3 @@ def get_ps_from_library(
     )
     ps = ps_from_scored_landscape(scored, genotype_col=genotype_col, ps_bounds=ps_bounds)
     return (ps, scored) if return_frame else ps
-
-
-def spearman_score_vs_fitness(
-    df: pd.DataFrame,
-    scores: np.ndarray | str = PLM_SCORE_COLUMN,
-    *,
-    fitness_col: str | None = None,
-) -> float:
-    """
-    Spearman correlation of model score against measured fitness.
-
-    A negative value is the sign to pass ``higher_is_fitter=False`` when estimating
-    ``ps``.
-
-    Inputs:
-    - ``df``: pandas DataFrame with a fitness column.
-    - ``scores``: ``(N,)`` float array aligned with ``df`` rows, or a column name;
-      defaults to ``plm_score``.
-    - ``fitness_col``: optional fitness column name.
-
-    Outputs:
-    - float Spearman rho over the rows where both values are finite (``nan`` if fewer
-      than two such rows).
-    """
-    from scipy.stats import spearmanr
-
-    resolve_column, _, _ = _genotype_helpers()
-    if fitness_col is None:
-        fitness_col = resolve_column(df, ["y", "fitness", "score"], purpose="fitness")
-    fitness = pd.to_numeric(df[fitness_col], errors="coerce").to_numpy(dtype=float)
-    values = (
-        pd.to_numeric(df[scores], errors="coerce").to_numpy(dtype=float)
-        if isinstance(scores, str)
-        else np.asarray(scores, dtype=float)
-    )
-    mask = np.isfinite(fitness) & np.isfinite(values)
-    if mask.sum() < 2:
-        return float("nan")
-    rho = spearmanr(fitness[mask], values[mask]).statistic
-    return float("nan") if np.isnan(rho) else float(rho)
