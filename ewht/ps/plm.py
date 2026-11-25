@@ -9,7 +9,7 @@ Distributions":
    - ``"esm2"`` (default): ESM2 wildtype-marginal LLR. One forward pass over the
      wild-type sequence; a variant's score is the sum of its substitutions' LLRs. Needs
      ``wt_sequence``, ``positions`` and ``mutants``.
-   - ``"antiberty"``: AntiBERTy pseudo-log-likelihood. Each variant is scored on its own
+   - ``"antiberty"``: AntiBERTy pseudo-perplexity. Each variant is scored on its own
      sequence, so it needs the variant sequences (a sequence column, or ``wt_sequence``
      plus ``positions`` and ``mutants`` to rebuild them). Antibodies only.
 
@@ -242,7 +242,7 @@ def score_landscape(
       genotype column, or ``wt_sequence`` with ``positions`` and ``mutants`` so one can
       be encoded from the variant sequences.
     - ``model``: ``'esm2'`` (wildtype-marginal LLR, the default) or ``'antiberty'``
-      (pseudo-log-likelihood, antibodies only). Ignored when ``scores`` is given.
+      (pseudo-perplexity, antibodies only). Ignored when ``scores`` is given.
     - ``wt_sequence``, ``positions``, ``mutants``: the library definition. ``positions``
       are 1-indexed; ``"NC"`` marks a non-coding site.
     - ``genotype_col``, ``sequence_col``: optional column names.
@@ -255,7 +255,7 @@ def score_landscape(
 
     Outputs:
     - a copy of the landscape with a validated ``genotype`` column plus
-      ``plm_score`` (float; LLR or pseudo-log-likelihood as returned by the model) and
+      ``plm_score`` (float; LLR or pseudo-perplexity as returned by the model) and
       ``plm_score_bin`` (1 at or above the median score, else 0).
     """
     df = _read_landscape(data)

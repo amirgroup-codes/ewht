@@ -86,7 +86,7 @@ ps, scored = ewht.get_ps_from_library(
     wt_sequence=WT, positions=POSITIONS, mutants=MUTANTS, return_frame=True,
 )
 
-# AntiBERTy, pseudo-log-likelihood per variant sequence. Antibodies only.
+# AntiBERTy, pseudo-perplexity per variant sequence. Antibodies only.
 ps, scored = ewht.get_ps_from_library(
     "landscape.csv", "antiberty",
     sequence_col="mutated_sequence", return_frame=True,
@@ -95,7 +95,7 @@ ps, scored = ewht.get_ps_from_library(
 scored[["genotype", "fitness", "plm_score", "plm_score_bin"]].head()
 ```
 
-Scoring uses the model score as returned (LLR or pseudo-log-likelihood) — no
+Scoring uses the model score as returned (LLR or pseudo-perplexity) — no
 fitness-direction flip. Scoring a big library is expensive, so cache the scores and
 feed them back rather than rescoring. The same hook takes scores from any other source
 (another model, a second assay):
