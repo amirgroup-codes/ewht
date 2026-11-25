@@ -6,9 +6,15 @@ import numpy as np
 
 
 def degree_index(L: int) -> np.ndarray:
-    """Map degree-ordered coefficient index -> lexicographic genotype index."""
+    """Map degree-ordered coefficient index -> lexicographic genotype index.
+
+    Site ``i`` is bit ``1 << (L - 1 - i)``, i.e. site 0 is the most significant bit, the
+    same convention the transform uses. That is what makes degree-ordered slot ``k`` hold
+    the interaction of sites ``list(combinations(range(L), r))[k]`` and no other; reading
+    the slots with the opposite convention mirrors every site label as ``i -> L - 1 - i``.
+    """
     idx = [
-        sum(1 << i for i in combo)
+        sum(1 << (L - 1 - i) for i in combo)
         for r in range(L + 1)
         for combo in combinations(range(L), r)
     ]

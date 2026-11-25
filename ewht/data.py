@@ -242,6 +242,68 @@ def sample_evolutionary_sequences(
     return train_df, test_df
 
 
+def split_bin_train_test(
+    df: pd.DataFrame,
+    n_train: int,
+    *,
+    in_bin: np.ndarray | str | None = None,
+    pool_size: int | None = None,
+    random_state: int = 0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Train/test split inside a bin, as in the paper's compressed-sensing experiments.
+
+    Draws a pool of measured variants uniformly without replacement from the bin, takes
+    the first ``n_train`` of it as the training set, and holds out the whole bin minus
+    that pool as the test set. Drawing one pool per seed and slicing its prefix means the
+    training sets for different ``n_train`` are nested and every basis sees identical
+    data, which is what makes eWHT and WHT comparable at fixed ``n``.
+
+    Inputs:
+    - ``df``: pandas DataFrame of measured variants, one row each.
+    - ``n_train``: number of training rows.
+    - ``in_bin``: ``(N,)`` bool mask, or the name of a 0/1 column, selecting the bin;
+      ``None`` uses every row. Pass the mask from ``ewht.ps.get_ps_from_library``.
+    - ``pool_size``: size of the drawn pool; defaults to ``n_train``. Set it to the
+      largest ``n_train`` of a sweep and slice the training set yourself to get nested
+      training sets, or call this once per ``n_train`` with the same ``pool_size``.
+    - ``random_state``: int seed for the draw.
+
+    Outputs:
+    - ``(train_df, test_df)``, both with the original columns and a reset index.
+    """
+    if df.empty:
+        raise ValueError("Input DataFrame is empty.")
+    if n_train < 1:
+        raise ValueError("n_train must be a positive integer.")
+
+    if in_bin is None:
+        mask = np.ones(len(df), dtype=bool)
+    elif isinstance(in_bin, str):
+        mask = pd.to_numeric(df[in_bin], errors="coerce").fillna(0).astype(int).to_numpy() == 1
+    else:
+        mask = np.asarray(in_bin, dtype=bool)
+        if mask.shape != (len(df),):
+            raise ValueError("in_bin must have one entry per row of df.")
+
+    pool_rows = np.flatnonzero(mask)
+    size = n_train if pool_size is None else int(pool_size)
+    if size < n_train:
+        raise ValueError(f"pool_size ({size}) must be at least n_train ({n_train}).")
+    if size >= len(pool_rows):
+        raise ValueError(
+            f"pool_size ({size}) must be smaller than the bin ({len(pool_rows)} variants), "
+            "so that held-out variants remain."
+        )
+
+    rng = np.random.default_rng(random_state)
+    pool = rng.choice(pool_rows, size=size, replace=False)
+    held_out = np.setdiff1d(pool_rows, pool, assume_unique=False)
+    train_df = df.iloc[pool[:n_train]].reset_index(drop=True)
+    test_df = df.iloc[held_out].reset_index(drop=True)
+    return train_df, test_df
+
+
 def subtract_mean(
     df: pd.DataFrame,
     ps: np.ndarray,

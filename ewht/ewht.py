@@ -217,19 +217,18 @@ def _compute_efwht_numpy(
 
 def _synthesis_butterfly_numpy(a: np.ndarray, ps: np.ndarray) -> np.ndarray:
     """Expectation-norm synthesis butterfly (inverse of the analysis butterfly)."""
+    a = np.array(a, dtype=float)
     h = 1
     while h < len(a):
-        p = ps[-int(np.log2(h)) - 1]
+        p = float(ps[-int(np.log2(h)) - 1])
         alpha = np.sqrt(p / (1 - p))
         beta = np.sqrt((1 - p) / p)
-        for i in range(0, len(a), h * 2):
-            for j in range(i, i + h):
-                x = a[j]
-                y = a[j + h]
-                a[j] = x + (alpha * y)
-                a[j + h] = x - (beta * y)
+        v = a.reshape(-1, 2, h)
+        x, y = v[:, 0, :].copy(), v[:, 1, :]
+        v[:, 0, :] = x + alpha * y
+        v[:, 1, :] = x - beta * y
         h *= 2
-    return a
+    return a.reshape(-1)
 
 
 def _compute_efwht_torch(

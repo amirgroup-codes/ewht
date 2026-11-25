@@ -28,10 +28,17 @@ def get_ps(
     ps_bounds: tuple[float, float] | list[float] | None = None,
 ) -> np.ndarray:
     """
-    Estimate per-site mutation probabilities ``p(mutant)`` for selected positions.
+    Estimate per-site mutation probabilities ``p(mutant)`` from one sequence.
 
     Uses an MSA (``.fasta``/``.a2m``) when ``msa`` is provided; otherwise queries
-    ESM2-650M (requires optional ``ewht[esm]`` dependencies).
+    ESM2-650M with a masked marginal per site (requires optional ``ewht[esm]``
+    dependencies). Either way each site is estimated on its own, from the wild-type
+    context only.
+
+    The paper estimates ``ps`` from the measured library instead: see
+    ``ewht.get_ps_from_library`` (ESM2 wildtype-marginal scores) and
+    ``ewht.get_ps_from_scores`` (scores from any model). Prefer those to reproduce the
+    paper; this function is the lighter option when no measured library is at hand.
 
     Inputs:
     - ``sequence``: wild-type amino-acid string.

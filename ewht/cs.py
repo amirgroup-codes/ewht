@@ -5,18 +5,25 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import sklearn
 from scipy.stats import spearmanr
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LassoCV
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 
 from ewht._io import SeqData, parse_seq_data
 from ewht._ordering import reorder_coeffs
 from ewht._validate import validate_ps
-from ewht.basis import get_basis, restore_expectation_coeffs
+from ewht.basis import get_basis
 
 
 DEFAULT_LAMBDAS = [m * 10**i for i in range(-5, 1) for m in (1, 5)]
+# Number of alphas on the LassoCV path, and how far down it reaches as a fraction of the
+# smallest alpha that zeroes every coefficient. These are the paper's settings.
+LAMBDA_PATH_SIZE = 30
+LAMBDA_PATH_EPS = 1e-4
+# sklearn >= 1.5 takes an int for `alphas`; older versions spell it `n_alphas`.
+_SK_ALPHAS_TAKES_INT = tuple(int(v) for v in sklearn.__version__.split(".")[:2]) >= (1, 5)
 
 
 @dataclass
@@ -27,7 +34,6 @@ class CSResult:
     train_metrics: dict[str, float]
     test_metrics: dict[str, float]
     predictions: dict[str, np.ndarray]
-    p_norms: np.ndarray | None
     basis: str
     cv_scores: dict[float, float]
 
@@ -39,7 +45,6 @@ class CSResult:
             "train_metrics": self.train_metrics,
             "test_metrics": self.test_metrics,
             "predictions": self.predictions,
-            "p_norms": self.p_norms,
             "basis": self.basis,
             "cv_scores": self.cv_scores,
         }
@@ -148,13 +153,56 @@ def select_lambda_cv(
     return best_lambda, mean_scores
 
 
+def select_lambda_path(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_splits: int = 5,
+    fit_intercept: bool = True,
+    random_state: int = 42,
+    n_jobs: int | None = None,
+) -> tuple[float, dict[float, float]]:
+    """
+    Select Lasso regularization strength on a data-dependent alpha path.
+
+    This is the paper's rule: ``LassoCV`` builds its own ``LAMBDA_PATH_SIZE``-point path
+    for these training rows, reaching down to ``LAMBDA_PATH_EPS`` of the smallest alpha
+    that zeroes every coefficient. It adapts to the scale of the design matrix and the
+    targets, unlike the fixed grid in ``select_lambda_cv``.
+
+    Inputs:
+    - ``X``: ``(N, P)`` float design matrix.
+    - ``y``: ``(N,)`` float fitness targets.
+    - ``n_splits``: CV folds, reduced to ``N`` when the training set is smaller.
+    - ``fit_intercept``: bool passed to ``LassoCV``.
+    - ``random_state``: int seed for fold shuffling.
+    - ``n_jobs``: passed to ``LassoCV``.
+
+    Outputs:
+    - ``best_lambda``: float alpha chosen by CV.
+    - ``cv_scores``: dict mapping each alpha on the path to its mean CV score.
+    """
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if len(y) < 2:
+        raise ValueError("Need at least two training samples to select lambda.")
+    path: dict[str, Any] = {"eps": LAMBDA_PATH_EPS}
+    path["alphas" if _SK_ALPHAS_TAKES_INT else "n_alphas"] = LAMBDA_PATH_SIZE
+    cv = KFold(n_splits=min(n_splits, len(y)), shuffle=True, random_state=random_state)
+    model = LassoCV(**path, cv=cv, fit_intercept=fit_intercept, n_jobs=n_jobs, max_iter=10000)
+    model.fit(X, y)
+    scores = dict(zip((float(a) for a in model.alphas_), model.mse_path_.mean(axis=1)))
+    return float(model.alpha_), {a: float(-s) for a, s in scores.items()}
+
+
 def run_cs_experiment(
     train: SeqData,
     test: SeqData,
     ps: np.ndarray,
     *,
     basis: str = "eWHT",
-    center_by_ps: bool = True,
+    center_by_ps: bool = False,
+    lambda_selection: str = "path",
     lambdas: list[float] | None = None,
     n_cv_splits: int = 5,
     degree_order: bool = False,
@@ -164,9 +212,10 @@ def run_cs_experiment(
     """
     Run Lasso compressed sensing on an eWHT or WHT basis.
 
-    Builds a stable-norm design matrix, centers targets, selects lambda by CV on
-    train, and fits Lasso. Returned coefficients are in expectation norm and
-    lexicographic order by default.
+    Defaults follow the paper: an expectation-norm design matrix, an unpenalized
+    intercept in place of ps-weighted centering, and the alpha chosen on a
+    data-dependent ``LassoCV`` path over the training rows. Returned coefficients are in
+    expectation norm and lexicographic order by default.
 
     Inputs:
     - ``train``: pandas DataFrame with ``genotype`` and fitness columns, or
@@ -174,10 +223,16 @@ def run_cs_experiment(
     - ``test``: same format as ``train``.
     - ``ps``: ``(L,)`` float mutation probabilities.
     - ``basis``: ``{'eWHT', 'WHT'}``.
-    - ``center_by_ps``: if ``True`` (default), ps-weighted centering on train and
-      the same center applied to test; Lasso uses ``fit_intercept=False``.
-    - ``lambdas``: optional list of Lasso ``alpha`` candidates for CV.
+    - ``center_by_ps``: if ``True``, subtract the ps-weighted mean of train (the uniform
+      mean for WHT) from both sets and fit without an intercept. Default ``False``, which
+      is the paper's setting: an unpenalized intercept absorbs the mean instead.
+    - ``lambda_selection``: ``'path'`` (default, the paper's rule) uses
+      ``select_lambda_path``; ``'grid'`` uses ``select_lambda_cv`` over ``lambdas``.
+    - ``lambdas``: optional list of Lasso ``alpha`` candidates; only for ``'grid'``.
     - ``n_cv_splits``: number of CV folds on train.
+    The design matrix is always expectation-norm, the paper's convention, so returned
+    coefficients are directly comparable with ``efwht`` output. ``get_basis`` still
+    exposes the other normalizations for use outside compressed sensing.
     - ``degree_order``: if ``False`` (default), return coeffs in lex order.
     - ``random_state``: int seed for CV and reproducibility.
 
@@ -191,17 +246,14 @@ def run_cs_experiment(
     if test_seqs.shape[1] != L:
         raise ValueError("Train and test sequences must have the same length L.")
     ps = validate_ps(ps, L)
+    if lambda_selection not in ("path", "grid"):
+        raise ValueError(
+            f"lambda_selection must be 'path' or 'grid', got {lambda_selection!r}."
+        )
 
-    basis_key = basis.upper()
-    if basis_key == "WHT":
-        basis_norm = "expectation"
-        p_norms = None
-    else:
-        basis_norm = "stable"
-        basis_key = "EWHT"
-
-    X_train, p_norms = _build_design(train_seqs, ps, basis_key=basis_key, norm=basis_norm)
-    X_test, _ = _build_design(test_seqs, ps, basis_key=basis_key, norm=basis_norm)
+    basis_key = "WHT" if basis.upper() == "WHT" else "EWHT"
+    X_train = _build_design(train_seqs, ps, basis_key=basis_key)
+    X_test = _build_design(test_seqs, ps, basis_key=basis_key)
 
     fit_intercept = not center_by_ps
     if center_by_ps:
@@ -212,23 +264,33 @@ def run_cs_experiment(
         y_train_fit = y_train.astype(float)
         y_test_fit = y_test.astype(float)
 
-    best_lambda, cv_scores = select_lambda_cv(
-        X_train,
-        y_train_fit,
-        lambdas=lambdas,
-        n_splits=n_cv_splits,
-        fit_intercept=fit_intercept,
-        random_state=random_state,
-    )
+    if lambda_selection == "path":
+        if lambdas is not None:
+            raise ValueError(
+                "lambdas only applies to lambda_selection='grid'; "
+                "the 'path' rule builds its own alpha path."
+            )
+        best_lambda, cv_scores = select_lambda_path(
+            X_train,
+            y_train_fit,
+            n_splits=n_cv_splits,
+            fit_intercept=fit_intercept,
+            random_state=random_state,
+        )
+    else:
+        best_lambda, cv_scores = select_lambda_cv(
+            X_train,
+            y_train_fit,
+            lambdas=lambdas,
+            n_splits=n_cv_splits,
+            fit_intercept=fit_intercept,
+            random_state=random_state,
+        )
 
     model = Lasso(alpha=best_lambda, fit_intercept=fit_intercept, max_iter=10000)
     model.fit(X_train, y_train_fit)
 
-    raw_coeffs = np.asarray(model.coef_, dtype=float)
-    if p_norms is not None:
-        coeffs = restore_expectation_coeffs(raw_coeffs, p_norms, degree_order=True)
-    else:
-        coeffs = raw_coeffs.copy()
+    coeffs = np.asarray(model.coef_, dtype=float).copy()
 
     if not degree_order:
         coeffs = reorder_coeffs(coeffs, L, degree_order=False)
@@ -252,23 +314,14 @@ def run_cs_experiment(
         train_metrics=train_metrics,
         test_metrics=test_metrics,
         predictions=predictions,
-        p_norms=p_norms,
         basis=basis_key,
         cv_scores=cv_scores,
     )
 
 
-def _build_design(
-    bin_seqs: np.ndarray,
-    ps: np.ndarray,
-    *,
-    basis_key: str,
-    norm: str,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    out = get_basis(bin_seqs, ps, basis=basis_key, norm=norm, degree_order=True)
-    if isinstance(out, tuple):
-        return out
-    return out, None
+def _build_design(bin_seqs: np.ndarray, ps: np.ndarray, *, basis_key: str) -> np.ndarray:
+    """Expectation-norm design matrix in degree order: the only normalization CS uses."""
+    return get_basis(bin_seqs, ps, basis=basis_key, norm="expectation", degree_order=True)
 
 
 def _metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:

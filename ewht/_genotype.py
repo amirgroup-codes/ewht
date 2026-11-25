@@ -85,7 +85,9 @@ def index_to_genotype(index: int, L: int) -> str:
 
 
 def validate_genotype_series(series: pd.Series, L: int | None = None) -> pd.Series:
-    """Normalize and validate a genotype column."""
+    """Normalize and validate a genotype column. L is inferred when not given."""
+    if L is None:
+        L = infer_genotype_length(series)
     if pd.api.types.is_numeric_dtype(series):
         series = series.map(lambda v: str(int(v)).zfill(L))
     else:

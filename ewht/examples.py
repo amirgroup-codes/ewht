@@ -25,8 +25,11 @@ def load_example() -> pd.DataFrame:
     """
     Load the bundled CR6261 H1-mean deep mutational scanning dataset.
 
-    The CSV contains ``mutant``, ``mutated_sequence``, ``fitness``, and
-    ``estimated_fitness`` columns without precomputed genotype fields.
+    The CSV contains ``mutant``, ``mutated_sequence``, ``fitness``,
+    ``estimated_fitness`` and ``plm_score`` columns, without precomputed genotype
+    fields. ``plm_score`` holds the paper's protein-language-model score for each
+    variant (higher = more plausible), so ``ewht.get_ps_from_scores`` reproduces the
+    paper's ``ps`` for this landscape without downloading a model.
 
     Outputs:
     - pandas DataFrame with 2048 rows (full ``2^11`` combinatorial library).

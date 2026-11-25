@@ -10,9 +10,9 @@
 `ewht` is a Python package for analyzing combinatorial fitness landscapes using the **evolutionary Walsh-Hadamard transform (eWHT)**. It provides:
 
 - Fast **O(N log N)** forward and inverse eWHT transforms
-- **Evolutionary mutation probabilities** `ps` from MSAs or ESM2-650M
-- **Data preprocessing** helpers (genotype encoding, evolutionary subsampling)
-- **Compressed sensing** with LASSO on eWHT/WHT bases
+- **Evolutionary mutation probabilities** `ps`, estimated from a landscape scored by **ESM2** or **AntiBERTy**
+- **Data preprocessing** helpers (genotype encoding, train/test splits)
+- **Compressed sensing** with Lasso on eWHT/WHT bases
 
 ## Installation
 
@@ -25,75 +25,42 @@ pip install ewht
 Optional extras:
 
 ```sh
-pip install ewht[esm]   # ESM2-650M ps estimation (requires torch + transformers)
+pip install ewht[esm]         # score with ESM2-650M (torch + transformers)
+pip install ewht[antiberty]   # score with AntiBERTy (torch + antiberty)
+pip install ewht[plm]         # both
 ```
 
 ## Quickstart
 
-The package contains an example CR6261-H1 dataset from the paper. Load it, estimate `ps` from MSA, compute the eWHT, and run compressed sensing. The full script can be found in `example_ewht.py`:
+The package bundles the CR6261-H1 dataset from the paper, including a precomputed
+`plm_score` column, so the whole pipeline runs without downloading a model. The full
+script is in `example_ewht.py`:
 
 ```python
 import ewht
 
-# Load data and preprocess
+# Load data and encode binary genotypes
 raw = ewht.load_example()
-print(raw.head())
-       mutant                                   mutated_sequence  fitness  estimated_fitness
-0          WT  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0
-1       L104V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0
-2        A79V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0
-3  A79V;L104V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0
-4        S77G  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0
-POSITIONS = [28, 30, 58, 59, 62, 74, 75, 76, 77, 79, 104]
-MUTANTS = ["P", "R", "T", "K", "P", "D", "F", "A", "G", "V", "V"]
-WT = (
-    "QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPEWMGGIIPIFGTANYAQKFQGRVTITADKSTSTAYMELSSLRSEDTAMYYCAKHMGYQLRETMDVWGQGTTVTVSS"
+df = ewht.genotypes_from_dataframe(raw, POSITIONS, wt_sequence=WT, mutants=MUTANTS)
+
+# ps from the pLM-scored library: median split, then per-site mutation frequency
+ps, scored = ewht.get_ps_from_library(df, scores=df["plm_score"], return_frame=True)
+print(ps.round(3))
+[0.677 0.627 0.517 0.597 0.688 0.545 0.644 0.651 0.604 0.563 0.59 ]
+
+# Forward eWHT of the centered landscape
+coeffs, center = ewht.efwht_from_dataframe(df, ps)
+
+# Compressed sensing: 100 variants from the pLM bin, tested on the rest of the bin
+measured = (scored["estimated_fitness"] == 0).to_numpy()
+train, test = ewht.split_bin_train_test(
+    scored[measured].reset_index(drop=True), 100, in_bin="plm_score_bin", random_state=0
 )
-L = len(POSITIONS)
-print(df.head())
-print(f"{df['genotype'].nunique()} unique genotypes, L={L}")
-       mutant                                   mutated_sequence  fitness  estimated_fitness     genotype
-0          WT  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0  00000000000
-1       L104V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0  00000000001
-2        A79V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0  00000000010
-3  A79V;L104V  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0  00000000011
-4        S77G  QVQLVESGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGPE...      7.0                  0  00000000100
-2048 unique genotypes, L=11
-
-with example_msa() as msa_path:
-    # Compute ps from MSA
-    ps = get_ps(WT_SEQUENCE, POSITIONS, MUTANTS, msa=msa_path)
-    plot_ps(ps, OUTPUT_DIR / "ps_from_msa.png")
-
-    # Compute eWHT
-    coeffs, center = efwht_from_dataframe(df, ps, basis="eWHT")
-    plot_ewht_spectrum(coeffs, L, OUTPUT_DIR / "ewht_spectrum.png", max_order=MAX_ORDER)
-
-    # Sample evolutionary sequences for compressed sensing
-    train, test = sample_evolutionary_sequences(
-        df,
-        ps,
-        msa=msa_path,
-        positions=POSITIONS,
-        wt_sequence=WT_SEQUENCE,
-        mutants=MUTANTS,
-        fraction=0.75,
-        train_n=TRAIN_N,
-        random_state=0,
-    )
-    print(f"train={len(train)}, test={len(test)}")
-    train=100, test=162
-
-    # Run compressed sensing experiment
-    result = run_cs_experiment(train, test, ps, basis="eWHT", center_by_ps=True, random_state=0)
-    print(f"best lambda: {result.best_lambda}")
-    print(f"train R²: {result.train_metrics['r2']:.4f}")
-    print(f"test R²:  {result.test_metrics['r2']:.4f}")
-    best lambda: 0.005
-    train R²: 0.9662
-    test R²:  0.8282
-
-print(f"Figures in {OUTPUT_DIR.resolve()}/")
+for basis in ("eWHT", "WHT"):
+    r = ewht.run_cs_experiment(train, test, ps, basis=basis, random_state=0)
+    print(basis, round(r.test_metrics["r2"], 4))
+eWHT 0.5992
+WHT 0.4593
 ```
 
 Run the full example:
@@ -103,10 +70,51 @@ python example_ewht.py
 
 ### Evolutionary mutation probabilities
 
-`get_ps` estimates per-site mutation probabilities from an MSA or, if no MSA is given, from ESM2-650M:
+The paper estimates `ps` from the **measured library**, not from the wild-type sequence
+alone. Every variant is scored with a protein language model, the library is split at the
+median score, and `p_i` is the fraction of variants in the upper half that carry a
+mutation at site `i` (clipped to `[0.05, 0.95]`):
+
+Give it a landscape CSV (or DataFrame) and pick a model. Either way you get back the
+landscape plus `plm_score` and `plm_score_bin` (1 at or above the median, else 0), and
+`ps` is read off the `plm_score_bin == 1` rows.
+
+```python
+# ESM2-650M, wildtype-marginal LLRs (default). Needs the library definition.
+ps, scored = ewht.get_ps_from_library(
+    "landscape.csv", "esm2",
+    wt_sequence=WT, positions=POSITIONS, mutants=MUTANTS, return_frame=True,
+)
+
+# AntiBERTy, pseudo-log-likelihood per variant sequence. Antibodies only.
+ps, scored = ewht.get_ps_from_library(
+    "landscape.csv", "antiberty",
+    sequence_col="mutated_sequence", higher_is_fitter=False, return_frame=True,
+)
+
+scored[["genotype", "fitness", "plm_score", "plm_score_bin"]].head()
+```
+
+If the model's score runs *against* fitness, pass `higher_is_fitter=False`, which flips
+the sign before the median split. `spearman_score_vs_fitness` tells you which way your
+data runs:
+
+```python
+rho = ewht.spearman_score_vs_fitness(scored)        # negative => flip
+```
+
+Scoring a big library is expensive, so cache the scores and feed them back rather than
+rescoring. The same hook takes scores from any other source (another model, a second
+assay):
+
+```python
+ps = ewht.get_ps_from_library(df, scores=my_scores)
+scored = ewht.score_landscape(df, scores=my_scores)  # just the frame
+ps = ewht.ps_from_scored_landscape(scored)           # just the ps
+```
 
 <p align="center">
-  <img width="700px" src="assets/ps_from_msa.png" alt="Per-site mutation probabilities from MSA">
+  <img width="700px" src="assets/ps_from_plm.png" alt="Per-site mutation probabilities from the pLM bin">
 </p>
 
 ### eWHT spectrum
@@ -121,26 +129,53 @@ The forward transform decomposes the centered landscape into Walsh coefficients 
 
 | Function | Description |
 |----------|-------------|
-| `efwht_from_dataframe(df, ps)` | Forward eWHT from a preprocessed DataFrame |
 | `efwht(y, ps)` | Forward eWHT on a length-`2^L` landscape vector |
 | `iefwht(coeffs, ps)` | Inverse eWHT (exact round-trip with matching `norm`) |
-| `get_ps(sequence, positions, mutants, msa=...)` | Per-site mutation probabilities |
-| `genotypes_from_dataframe(df, positions, wt_sequence, mutants)` | Build binary genotype column from sequences |
-| `sample_evolutionary_sequences(df, ps, ...)` | Evolutionary subsampling with optional MSA mask |
+| `efwht_from_dataframe(df, ps)` | Forward eWHT from a preprocessed DataFrame |
+| `get_ps_from_library(data, model)` | Score a landscape and estimate `ps` (the paper's method) |
+| `score_landscape(data, model)` | Landscape + `plm_score` + `plm_score_bin` |
+| `ps_from_scored_landscape(df)` | `ps` from an already scored and binned frame |
+| `get_ps_from_scores(df, scores)` | `ps` from a library scored by any model |
+| `spearman_score_vs_fitness(df, scores)` | Which way a model's score runs against fitness |
+| `genotypes_from_dataframe(df, positions, wt_sequence, mutants)` | Build a binary genotype column from sequences |
+| `split_bin_train_test(df, n_train, in_bin=...)` | Uniform train/test split inside a bin (the paper's protocol) |
+| `sample_evolutionary_sequences(df, ps, ...)` | `ps`-weighted subsampling, with an optional MSA mask |
 | `run_cs_experiment(train, test, ps)` | Lasso compressed sensing with CV on train |
+| `get_basis(bin_seqs, ps)` | eWHT / WHT design matrix |
 
-## Genotype encodings
+## Compressed sensing
 
-`ewht` accepts genotypes as:
+`run_cs_experiment` follows the paper: an **expectation-norm design matrix** (the only
+normalization it uses), an unpenalized intercept, and the Lasso `alpha` chosen by
+`LassoCV` on a 30-point, data-dependent path over the training rows.
 
-- Binary strings: `"00101"` (`0` = WT, `1` = mutant)
-- Pseudoboolean strings: `"1-1-11"` (`1` = WT, `-1` = mutant)
+```python
+r = ewht.run_cs_experiment(train, test, ps, basis="eWHT")
+r.best_lambda, r.test_metrics, r.coeffs   # coeffs in expectation norm, lexicographic order
+```
 
-For custom mappings, add a `genotype` column directly instead of using `genotypes_from_dataframe`.
+To compare bases fairly across `n`, draw one pool per seed and slice it, so the training
+sets are nested and every basis sees identical data:
+
+```python
+for n in range(20, 201, 20):
+    train, test = ewht.split_bin_train_test(df, n, in_bin=in_bin, pool_size=200, random_state=seed)
+```
+
+## Conventions
+
+- Genotypes are 0/1 strings, `0` = wild-type and `1` = mutant. Pseudoboolean strings
+  (`1` = wild-type, `-1` = mutant) are accepted too. For a custom mapping, add a
+  `genotype` column directly instead of using `genotypes_from_dataframe`.
+- **Site 0 is the most significant bit** of the genotype index, for both the transform and
+  the design matrix, so `get_basis(...) @ coeffs` reproduces the landscape that `efwht`
+  decomposed. Coefficients come back in lexicographic order unless `degree_order=True`.
 
 ## Optional dependencies
 
 | Extra | Packages | Use case |
 |-------|----------|----------|
-| (default) | numpy, pandas, scipy, scikit-learn | transforms, MSA-based ps, CS |
-| `ewht[esm]` | torch, transformers | ps from ESM2-650M when no MSA is available |
+| (default) | numpy, pandas, scipy, scikit-learn | transforms, `ps` from scores, MSA `ps`, CS |
+| `ewht[esm]` | torch, transformers | scoring a landscape with ESM2-650M |
+| `ewht[antiberty]` | torch, antiberty | scoring an antibody landscape with AntiBERTy |
+| `ewht[plm]` | both of the above | either model |

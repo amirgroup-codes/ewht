@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ewht"
-version = "0.0.1.post1"
+version = "0.2.0"
 description = "Evolutionary Walsh-Hadamard transform and compressed sensing for protein fitness landscapes"
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,8 @@ dependencies = [
 [project.optional-dependencies]
 torch = ["torch"]
 esm = ["torch", "transformers"]
+antiberty = ["torch", "antiberty"]
+plm = ["torch", "transformers", "antiberty"]
 dev = ["pytest", "build", "twine"]
 
 [project.urls]
@@ -54,6 +56,7 @@ include = ["ewht*"]
 ewht = ["example_data/*.csv", "example_data/*.a2m", "example_data/*.npy"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "slow: marks tests that load ESM (deselect with '-m \"not slow\"')",
 ]

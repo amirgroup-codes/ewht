@@ -6,12 +6,12 @@ import numpy as np
 from matplotlib.lines import Line2D
 from ewht import (
     efwht_from_dataframe,
-    example_msa,
     genotypes_from_dataframe,
-    get_ps,
+    get_ps_from_library,
     load_example,
     run_cs_experiment,
-    sample_evolutionary_sequences,
+    spearman_score_vs_fitness,
+    split_bin_train_test,
 )
 
 OUTPUT_DIR = Path("example_ewht")
@@ -51,34 +51,53 @@ def main() -> None:
     print(df.head())
     print(f"{df['genotype'].nunique()} unique genotypes, L={L}")
 
-    with example_msa() as msa_path:
-        # Compute ps from MSA
-        ps = get_ps(WT_SEQUENCE, POSITIONS, MUTANTS, msa=msa_path)
-        plot_ps(ps, OUTPUT_DIR / "ps_from_msa.png")
+    # Compute ps from the pLM-scored library: split at the median score, then take the
+    # per-site mutation frequency in the upper half. The bundled plm_score column lets
+    # this run offline; to score the landscape with a model instead, drop `scores=` and
+    # pick one:
+    #   ps, scored = get_ps_from_library(
+    #       "landscape.csv", "esm2", wt_sequence=WT_SEQUENCE, positions=POSITIONS,
+    #       mutants=MUTANTS, return_frame=True)                       # ESM2 WT-marginal
+    #   ps, scored = get_ps_from_library(
+    #       "landscape.csv", "antiberty", sequence_col="mutated_sequence",
+    #       higher_is_fitter=False, return_frame=True)                # AntiBERTy PPL
+    rho = spearman_score_vs_fitness(df, "plm_score")
+    print(f"Spearman(pLM score, fitness) = {rho:.4f}")
+    ps, scored = get_ps_from_library(
+        df,
+        wt_sequence=WT_SEQUENCE,
+        positions=POSITIONS,
+        mutants=MUTANTS,
+        scores=df["plm_score"].to_numpy(float),
+        return_frame=True,
+    )
+    in_bin = (scored["plm_score_bin"] == 1).to_numpy()
+    print(f"pLM bin: {int(in_bin.sum())} of {len(scored)} variants")
+    plot_ps(ps, OUTPUT_DIR / "ps_from_plm.png")
 
-        # Compute eWHT
-        coeffs, center = efwht_from_dataframe(df, ps, basis="eWHT")
-        plot_ewht_spectrum(coeffs, L, OUTPUT_DIR / "ewht_spectrum.png", max_order=MAX_ORDER)
+    # Compute eWHT
+    coeffs, center = efwht_from_dataframe(df, ps, basis="eWHT")
+    plot_ewht_spectrum(coeffs, L, OUTPUT_DIR / "ewht_spectrum.png", max_order=MAX_ORDER)
 
-        # Sample evolutionary sequences for compressed sensing
-        train, test = sample_evolutionary_sequences(
-            df,
-            ps,
-            msa=msa_path,
-            positions=POSITIONS,
-            wt_sequence=WT_SEQUENCE,
-            mutants=MUTANTS,
-            fraction=0.75,
-            train_n=TRAIN_N,
-            random_state=0,
+    # Compressed sensing: train on n variants drawn uniformly from the pLM bin and test
+    # on the rest of the bin, with both bases seeing the same split. Imputed variants are
+    # left out of the fit, as in the paper; ps above still came from the whole library.
+    measured = (scored["estimated_fitness"] == 0).to_numpy()
+    train, test = split_bin_train_test(
+        scored[measured].reset_index(drop=True),
+        TRAIN_N,
+        in_bin="plm_score_bin",
+        random_state=0,
+    )
+    print(f"measured={int(measured.sum())} of {len(scored)}, train={len(train)}, test={len(test)}")
+
+    for basis in ("eWHT", "WHT"):
+        result = run_cs_experiment(train, test, ps, basis=basis, random_state=0)
+        print(
+            f"{basis:>4}: best lambda {result.best_lambda:.4g}, "
+            f"train R² {result.train_metrics['r2']:.4f}, "
+            f"test R² {result.test_metrics['r2']:.4f}"
         )
-        print(f"train={len(train)}, test={len(test)}")
-
-        # Run compressed sensing experiment
-        result = run_cs_experiment(train, test, ps, basis="eWHT", center_by_ps=True, random_state=0)
-        print(f"best lambda: {result.best_lambda}")
-        print(f"train R²: {result.train_metrics['r2']:.4f}")
-        print(f"test R²:  {result.test_metrics['r2']:.4f}")
 
     print(f"Figures in {OUTPUT_DIR.resolve()}/")
 
@@ -124,7 +143,7 @@ def plot_ps(ps: np.ndarray, out_path: Path) -> None:
     ax.set_ylim(0.0, 1.0)
     ax.set_xlabel("Position (mutant amino acid)")
     ax.set_ylabel("p(mutant)")
-    ax.set_title("Evolutionary mutation probabilities from bundled MSA")
+    ax.set_title("Evolutionary mutation probabilities from the pLM bin")
     ax.axhline(0.5, color="gray", linestyle="--", linewidth=0.8, label="p = 0.5")
     ax.legend()
     fig.tight_layout()
