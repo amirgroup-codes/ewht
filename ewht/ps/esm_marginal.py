@@ -5,8 +5,8 @@ log-likelihood-ratio (LLR) matrix, and a variant's score is the sum of the LLRs 
 substitutions. The wild-type therefore scores 0 and the score is additive across sites,
 so a whole combinatorial library costs a single forward pass.
 
-Higher score = more plausible to the model. Where fitness runs against model
-plausibility, pass ``higher_is_fitter=False`` to the ``ewht.ps`` entry points.
+Higher score = more plausible to the model. Scores are used as returned by the model
+(no fitness-direction flip).
 
 The tiling helpers for sequences longer than ESM2's 1022-residue window are adapted from
 esm-variants, ``esm_variants_utils.py`` (MIT License, Copyright (c) 2023 Nadav Brandes and
